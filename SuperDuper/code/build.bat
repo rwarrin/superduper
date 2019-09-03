@@ -8,7 +8,7 @@ REM SET CompilerFlags=/nologo /Z7 /Ox /Oi /MT /fp:fast /FC /WX /W4 /wd4201 /wd41
 IF NOT EXIST build mkdir build
 pushd build
 
-REM rc.exe /nologo ..\SuperDuper\code\resources.rc
+rc.exe /nologo ..\SuperDuper\code\resources.rc
 cl.exe %CompilerFlags% ..\SuperDuper\code\resources.res ..\SuperDuper\code\win32_superduper.cpp /link %LinkerFlags%
 
 popd
