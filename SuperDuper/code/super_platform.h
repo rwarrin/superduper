@@ -55,7 +55,18 @@ _PushSize(struct arena *Arena, u32 Size)
 {
     Assert(Arena->Used + Size <= Arena->Size);
     u8 *Result = Arena->Base + Arena->Used;
-    Arena->Used += Size;
+
+    // TODO(rick): Make the alignment requirement a parameter
+    size_t Alignment = 16;
+    size_t AlignmentMask = Alignment - 1;
+    size_t Offset = 0;
+    if(((size_t)Result) & AlignmentMask)
+    {
+        Offset = Alignment - (((size_t)Result) & AlignmentMask);
+    }
+
+    Result = Result + Offset;
+    Arena->Used += (u32)(Size + Offset);
 
     return(Result);
 }
