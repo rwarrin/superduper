@@ -21,8 +21,3 @@ Load opens in the File menu.
 1. Add the MSVC compiler tools to your environment by running the `vcvarsall.bat`
    found in the Visual Studio directory.
 2. Run `build.bat`. 
-
-## Known Issues
-
-* Compiling a release build with compiler optimizations turned on causes
-  unaligned access faults. I will need to align memory from the Arenas. 
