@@ -57,21 +57,22 @@ Win32ReadEntireFile(struct arena *Arena, struct file_buffer *FileReadBuffer,
                     wchar *Directory, WIN32_FIND_DATAW *FileData)
 {
     struct entire_file Result = {};
-    if(FileData->nFileSizeLow > FileReadBuffer->Size)
-    {
-        Win32ResizeFileReadBuffer(FileReadBuffer, FileData->nFileSizeLow + Megabytes(64));
-    }
 
     struct temp_memory TempArena = BeginTemporaryMemory(Arena);
     wchar *FullFilePath = Win32CreateFullPath(Arena, Directory, FileData->cFileName);
     FILE *File = _wfopen(FullFilePath, L"rb");
     if(File)
     {
-        Result.Contents = FileReadBuffer->Memory;
-        fseek(File, 0, SEEK_END);
-        Result.Size = ftell(File);
-        fseek(File, 0, SEEK_SET);
+        _fseeki64(File, 0, SEEK_END);
+        Result.Size = _ftelli64(File);
+        _fseeki64(File, 0, SEEK_SET);
 
+        if(Result.Size > FileReadBuffer->Size)
+        {
+            Win32ResizeFileReadBuffer(FileReadBuffer, Result.Size + Kilobytes(8));
+        }
+
+        Result.Contents = FileReadBuffer->Memory;
         fread(Result.Contents, Result.Size, 1, File);
         fclose(File);
 
