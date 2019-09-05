@@ -29,7 +29,7 @@ Win32ResizeFileReadBuffer(struct file_buffer *FileBuffer, u64 Size)
     FileBuffer->Size = Size;
     FileBuffer->Memory = (u8 *)VirtualAlloc(0, FileBuffer->Size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-#ifdef SUPER_INTERNAL
+#if SUPER_INTERNAL
     FileBuffer->MaxUsed = MAX(FileBuffer->MaxUsed, Size);
     ++FileBuffer->AllocationsMade;
 #endif
@@ -721,7 +721,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
         }
     }
 
-#ifdef SUPER_INTERNAL
+#if SUPER_INTERNAL
     FILE *Log = fopen("log.txt", "w");
     if(Log)
     {

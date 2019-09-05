@@ -37,7 +37,7 @@ struct arena
     u32 Used;
     u64 Size;
 
-#ifdef SUPER_INTERNAL
+#if SUPER_INTERNAL
     // TODO(rick): Remove these eventually
     u64 MaxUsed;
     u64 AllocationsMade;
@@ -76,7 +76,7 @@ _PushSize(struct arena *Arena, u32 Size)
     Result = Result + Offset;
     Arena->Used += (u32)(Size + Offset);
 
-#ifdef SUPER_INTERNAL
+#if SUPER_INTERNAL
     Arena->MaxUsed = MAX(Arena->MaxUsed, Arena->Used);
     ++Arena->AllocationsMade;
 #endif
@@ -122,7 +122,7 @@ struct file_buffer
     size_t Size;
     u8 *Memory;
 
-#ifdef SUPER_INTERNAL
+#if SUPER_INTERNAL
     // TODO(rick): Remove these eventually
     u64 MaxUsed;
     u64 AllocationsMade;
