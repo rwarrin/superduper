@@ -28,6 +28,11 @@ Win32ResizeFileReadBuffer(struct file_buffer *FileBuffer, u64 Size)
 
     FileBuffer->Size = Size;
     FileBuffer->Memory = (u8 *)VirtualAlloc(0, FileBuffer->Size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
+#ifdef SUPER_INTERNAL
+    FileBuffer->MaxUsed = MAX(FileBuffer->MaxUsed, Size);
+    ++FileBuffer->AllocationsMade;
+#endif
 }
 
 internal wchar *
@@ -565,50 +570,6 @@ Win32WindowsCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
     return(Result);
 }
 
-#if 0
-int
-main(void)
-{
-    struct file_buffer FileReadBuffer = {};
-    Win32ResizeFileReadBuffer(&FileReadBuffer, Megabytes(32));
-
-    struct arena StringsArena = {};
-    InitializeArena(&StringsArena, Kilobytes(512));
-
-    struct arena TableArena = {};
-    InitializeArena(&TableArena, Megabytes(32));
-
-    struct file_table FileTable = {};
-    InitializeFileTable(&TableArena, &FileTable, 4093);
-
-#if 1
-    wchar *BaseDirectory = L"..\\..\\SuperDuper";
-#else
-    wchar *BaseDirectory = L"E:\\Dev\\Projects";
-#endif
-    Win32EnumerateDirectoryContents(&StringsArena, &TableArena, &FileTable,
-                                    &FileReadBuffer, BaseDirectory);
-
-    for(u32 Index = 0; Index < FileTable.Size; ++Index)
-    {
-        for(struct file_info *FileInfo = FileTable.Buckets[Index];
-            FileInfo != 0;
-            FileInfo = FileInfo->Next)
-        {
-            printf("%llu%llu\n", FileInfo->Hash.m128i_u64[0], FileInfo->Hash.m128i_u64[1]);
-            printf("\t%12llu %ws\n", FileInfo->FileSize, FileInfo->FileName);
-            for(struct file_info *DuplicateFiles = FileInfo->Files;
-                DuplicateFiles != 0;
-                DuplicateFiles = DuplicateFiles->Files)
-            {
-                printf("\t%12llu %ws\n", DuplicateFiles->FileSize, DuplicateFiles->FileName);
-            }
-        }
-    }
-
-    return(0);
-}
-#else
 int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
 {
@@ -760,6 +721,45 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
         }
     }
 
+#ifdef SUPER_INTERNAL
+    FILE *Log = fopen("log.txt", "w");
+    if(Log)
+    {
+        fprintf(Log, "StringsArena\n\tMax Used: %llu\n\tAllocations: %llu\n",
+                StringsArena.MaxUsed, StringsArena.AllocationsMade);
+        fprintf(Log, "TableArena\n\tMax Used: %llu\n\tAllocations: %llu\n",
+                TableArena.MaxUsed, TableArena.AllocationsMade);
+
+        u32 MaxChainLength = 0;
+        u32 ChainLength = 0;
+        u32 UnusedBuckets = 0;
+        for(u32 Index = 0; Index < FileTable.Size; ++Index)
+        {
+            ChainLength = 0;
+            for(struct file_info *FileInfo = FileTable.Buckets[Index];
+                FileInfo != 0;
+                FileInfo = FileInfo->Next)
+            {
+                ++ChainLength;
+            }
+
+            if(ChainLength == 0)
+            {
+                ++UnusedBuckets;
+            }
+
+            MaxChainLength = MAX(MaxChainLength, ChainLength);
+        }
+        fprintf(Log, "File Table\n\tCount: %u\n\tMax Chain Length: %u\n"
+                     "\tUnused Buckets: %u\n",
+                FileTable.Count, MaxChainLength, UnusedBuckets);
+
+        fprintf(Log, "File Read Buffer\n\tMax Size: %llu\n\tAllocations: %llu\n",
+                FileReadBuffer.MaxUsed, FileReadBuffer.AllocationsMade);
+
+        fclose(Log);
+    }
+#endif
+
     return(0);
 }
-#endif

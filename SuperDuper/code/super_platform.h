@@ -29,11 +29,19 @@ typedef uint32_t b32;
 
 #define ArrayCount(Array) (sizeof((Array)) / sizeof((Array)[0]))
 
+#define MAX(A, B) ((A) > (B) ? (A) : (B))
+
 struct arena
 {
     u8 *Base;
     u32 Used;
     u64 Size;
+
+#ifdef SUPER_INTERNAL
+    // TODO(rick): Remove these eventually
+    u64 MaxUsed;
+    u64 AllocationsMade;
+#endif
 };
 
 internal void
@@ -67,6 +75,11 @@ _PushSize(struct arena *Arena, u32 Size)
 
     Result = Result + Offset;
     Arena->Used += (u32)(Size + Offset);
+
+#ifdef SUPER_INTERNAL
+    Arena->MaxUsed = MAX(Arena->MaxUsed, Arena->Used);
+    ++Arena->AllocationsMade;
+#endif
 
     return(Result);
 }
@@ -108,6 +121,12 @@ struct file_buffer
 {
     size_t Size;
     u8 *Memory;
+
+#ifdef SUPER_INTERNAL
+    // TODO(rick): Remove these eventually
+    u64 MaxUsed;
+    u64 AllocationsMade;
+#endif
 };
 
 struct entire_file
