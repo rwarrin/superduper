@@ -135,5 +135,10 @@ struct entire_file
     u8 *Contents;
 };
 
+enum
+{
+    MEOWHASH_STREAMING_THRESHOLD = Megabytes(32)
+};
+
 #define SUPER_PLATFORM_H
 #endif

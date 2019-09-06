@@ -57,36 +57,6 @@ Win32CreateFullPath(arena *Arena, wchar *BasePath, wchar *DirectoryName)
     return(Result);
 }
 
-internal struct entire_file
-Win32ReadEntireFile(struct arena *Arena, struct file_buffer *FileReadBuffer,
-                    wchar *Directory, WIN32_FIND_DATAW *FileData)
-{
-    struct entire_file Result = {};
-
-    struct temp_memory TempArena = BeginTemporaryMemory(Arena);
-    wchar *FullFilePath = Win32CreateFullPath(Arena, Directory, FileData->cFileName);
-    FILE *File = _wfopen(FullFilePath, L"rb");
-    if(File)
-    {
-        _fseeki64(File, 0, SEEK_END);
-        Result.Size = _ftelli64(File);
-        _fseeki64(File, 0, SEEK_SET);
-
-        if(Result.Size > FileReadBuffer->Size)
-        {
-            Win32ResizeFileReadBuffer(FileReadBuffer, Result.Size + Kilobytes(8));
-        }
-
-        Result.Contents = FileReadBuffer->Memory;
-        fread(Result.Contents, Result.Size, 1, File);
-        fclose(File);
-
-    }
-    EndTemporaryMemory(&TempArena);
-
-    return(Result);
-}
-
 internal void
 Win32EnumerateDirectoryContents(arena *StringsArena, arena *TableArena, struct file_table *FileTable,
                                 struct file_buffer *FileReadBuffer, wchar *Directory)
@@ -122,12 +92,57 @@ Win32EnumerateDirectoryContents(arena *StringsArena, arena *TableArena, struct f
             }
             else
             {
-                struct entire_file EntireFile = Win32ReadEntireFile(StringsArena, FileReadBuffer, Directory, &FileData);
-                meow_u128 Hash = MeowHash(MeowDefaultSeed, EntireFile.Size, EntireFile.Contents);
+                struct temp_memory TempFileArena = BeginTemporaryMemory(StringsArena);
 
-                u32 FileNameSize = (u32)(wcslen(FileData.cFileName) + wcslen(Directory) + 2);
-                wchar *FileName = Win32CreateFullPath(TableArena, Directory, FileData.cFileName);
-                FileTableAddFileInfo(TableArena, FileTable, Hash, EntireFile.Size, FileNameSize, FileName);
+                struct entire_file EntireFile = {};
+                wchar *FullFilePath = Win32CreateFullPath(StringsArena, Directory, FileData.cFileName);
+                FILE *File = _wfopen(FullFilePath, L"rb");
+                if(File)
+                {
+                    _fseeki64(File, 0, SEEK_END);
+                    EntireFile.Size = _ftelli64(File);
+                    _fseeki64(File, 0, SEEK_SET);
+
+                    meow_u128 Hash;
+                    if(EntireFile.Size > MEOWHASH_STREAMING_THRESHOLD)
+                    {
+                        if(FileReadBuffer->Size < MEOWHASH_STREAMING_THRESHOLD)
+                        {
+                            Win32ResizeFileReadBuffer(FileReadBuffer, MEOWHASH_STREAMING_THRESHOLD);
+                        }
+
+                        EntireFile.Contents = FileReadBuffer->Memory;
+
+                        u32 BytesRead = 0;
+                        meow_state MeowState = {};
+                        MeowBegin(&MeowState, MeowDefaultSeed);
+                        while((BytesRead = (u32)fread(EntireFile.Contents, MEOWHASH_STREAMING_THRESHOLD, 1, File)) > 0)
+                        {
+                            MeowAbsorb(&MeowState, BytesRead, EntireFile.Contents);
+                        }
+                        Hash = MeowEnd(&MeowState, 0);
+                    }
+                    else
+                    {
+                        if(EntireFile.Size > FileReadBuffer->Size)
+                        {
+                            Win32ResizeFileReadBuffer(FileReadBuffer, EntireFile.Size);
+                        }
+
+                        EntireFile.Contents = FileReadBuffer->Memory;
+                        fread(EntireFile.Contents, EntireFile.Size, 1, File);
+
+                        Hash = MeowHash(MeowDefaultSeed, EntireFile.Size, EntireFile.Contents);
+                    }
+
+                    u32 FileNameSize = (u32)(wcslen(FileData.cFileName) + wcslen(Directory) + 2);
+                    wchar *FileName = Win32CreateFullPath(TableArena, Directory, FileData.cFileName);
+                    FileTableAddFileInfo(TableArena, FileTable, Hash, EntireFile.Size, FileNameSize, FileName);
+
+                    fclose(File);
+                }
+
+                EndTemporaryMemory(&TempFileArena);
             }
 
             NextFileIsValid = FindNextFileW(FindHandle, &FileData);
@@ -679,7 +694,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
                             b32 ValidDirectory = Win32GetDirectoryFromUser(Window, SelectedFolderPath);
                             if(ValidDirectory)
                             {
-                                InitializeMemoryBuffers(&FileReadBuffer, Megabytes(32),
+                                InitializeMemoryBuffers(&FileReadBuffer, Megabytes(4),
                                                         &FileTable, 4093,
                                                         &StringsArena, Kilobytes(512),
                                                         &TableArena, Megabytes(32));
