@@ -37,9 +37,12 @@ struct arena
     u32 Used;
     u64 Size;
 
+    struct arena *Next;
+
 #if SUPER_INTERNAL
     // TODO(rick): Remove these eventually
     u64 MaxUsed;
+    u64 MaxSize;
     u64 AllocationsMade;
 #endif
 };
@@ -61,8 +64,43 @@ InitializeArena(struct arena *Arena, u64 Size)
 inline u8 *
 _PushSize(struct arena *Arena, u32 Size)
 {
-    Assert(Arena->Used + Size <= Arena->Size);
-    u8 *Result = Arena->Base + Arena->Used;
+    struct arena *UsingArena = Arena;
+    struct arena *PreviousArena = 0;
+    for(; UsingArena != 0; UsingArena = UsingArena->Next)
+    {
+        if(UsingArena->Used + Size < UsingArena->Size)
+        {
+            break;
+        }
+        PreviousArena = UsingArena;
+    }
+
+    if(UsingArena == 0)
+    {
+        u64 BlockSize = 0;
+        if(PreviousArena != 0)
+        {
+            BlockSize = PreviousArena->Size*2;
+        }
+        if(Size > BlockSize)
+        {
+            BlockSize = Size*2;
+        }
+
+        u64 ArenaSize = sizeof(struct arena) + BlockSize;
+        UsingArena = (struct arena *)VirtualAlloc(0, ArenaSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+        UsingArena->Used = 0;
+        UsingArena->Size = BlockSize;
+        UsingArena->Base = (u8 *)(UsingArena + 1);
+
+        if(PreviousArena != 0)
+        {
+            PreviousArena->Next = UsingArena;
+        }
+    }
+
+    Assert(UsingArena->Used + Size <= UsingArena->Size);
+    u8 *Result = UsingArena->Base + UsingArena->Used;
 
     // TODO(rick): Make the alignment requirement a parameter
     size_t Alignment = 16;
@@ -74,10 +112,11 @@ _PushSize(struct arena *Arena, u32 Size)
     }
 
     Result = Result + Offset;
-    Arena->Used += (u32)(Size + Offset);
+    UsingArena->Used += (u32)(Size + Offset);
 
 #if SUPER_INTERNAL
-    Arena->MaxUsed = MAX(Arena->MaxUsed, Arena->Used);
+    UsingArena->MaxUsed = MAX(Arena->MaxUsed, UsingArena->Used);
+    UsingArena->MaxSize = MAX(Arena->MaxSize, UsingArena->Size);
     ++Arena->AllocationsMade;
 #endif
 
@@ -98,10 +137,13 @@ BeginTemporaryMemory(struct arena *Arena)
     Assert(Arena != 0);
 
     struct temp_memory Result = {};
+    // TODO(rick): Implement these again...
+#if 0
     Result.Base = Arena->Base;
     Result.Used = Arena->Used;
     Result.Size = Arena->Size;
     Result.Arena = Arena;
+#endif
 
     return(Result);
 }
@@ -109,12 +151,14 @@ BeginTemporaryMemory(struct arena *Arena)
 inline void
 EndTemporaryMemory(struct temp_memory *TempMemory)
 {
+#if 0
     if(TempMemory != 0)
     {
         TempMemory->Arena->Base = TempMemory->Base;
         TempMemory->Arena->Used = TempMemory->Used;
         TempMemory->Arena->Size = TempMemory->Size;
     }
+#endif
 }
 
 struct file_buffer

@@ -696,8 +696,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
                             {
                                 InitializeMemoryBuffers(&FileReadBuffer, Megabytes(4),
                                                         &FileTable, 4093,
-                                                        &StringsArena, Kilobytes(512),
-                                                        &TableArena, Megabytes(32));
+                                                        &StringsArena, Kilobytes(12),
+                                                        &TableArena, Kilobytes(32));
 
                                 Win32SetStatusBarText(StatusBar, L"", StatusBarItems_CountTotal);
                                 Win32SetStatusBarText(StatusBar, L"", StatusBarItems_CountDuplicate);
@@ -740,10 +740,10 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     FILE *Log = fopen("log.txt", "w");
     if(Log)
     {
-        fprintf(Log, "StringsArena\n\tMax Used: %llu\n\tAllocations: %llu\n",
-                StringsArena.MaxUsed, StringsArena.AllocationsMade);
-        fprintf(Log, "TableArena\n\tMax Used: %llu\n\tAllocations: %llu\n",
-                TableArena.MaxUsed, TableArena.AllocationsMade);
+        fprintf(Log, "StringsArena\n\tMax Size: %llu\n\tMax Used: %llu\n\tAllocations: %llu\n",
+                StringsArena.MaxSize, StringsArena.MaxUsed, StringsArena.AllocationsMade);
+        fprintf(Log, "TableArena\n\tMax Size: %llu\n\tMax Used: %llu\n\tAllocations: %llu\n",
+                TableArena.MaxSize, TableArena.MaxUsed, TableArena.AllocationsMade);
 
         u32 MaxChainLength = 0;
         u32 ChainLength = 0;
