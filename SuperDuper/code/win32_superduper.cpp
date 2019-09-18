@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
+#define _CRT_DISABLE_PERFCRIT_LOCKS
 #define UNICODE
 
 #include <windows.h>
@@ -13,6 +14,7 @@
 #include "super_platform.h"
 #include "win32_superduper.h"
 
+#include "super.cpp"
 #include "super_hashtable.cpp"
 
 global_variable HWND GlobalTreeViewHandle;
@@ -39,7 +41,7 @@ internal wchar *
 Win32CreateFullPath(arena *Arena, wchar *BasePath, wchar *DirectoryName)
 {
     u32 StringLength = (u32)(wcslen(BasePath) + wcslen(DirectoryName) + 2);
-    wchar *Result = PushArray(Arena, MAX_PATH, wchar);
+    wchar *Result = PushArray(Arena, StringLength, wchar);
     wchar *At = Result;
 
     while(*BasePath != 0)
@@ -58,14 +60,14 @@ Win32CreateFullPath(arena *Arena, wchar *BasePath, wchar *DirectoryName)
 }
 
 internal void
-Win32EnumerateDirectoryContents(arena *StringsArena, arena *TableArena, struct file_table *FileTable,
-                                struct file_buffer *FileReadBuffer, wchar *Directory)
+Win32EnumerateDirectoryContents(arena *StringsArena, arena *DirectoriesArena,
+                                wchar *Directory, u32 *Count)
 {
     WIN32_FIND_DATAW FileData = {};
-    struct temp_memory TempMemory = BeginTemporaryMemory(StringsArena);
 
+    u32 DirectoryLength = (u32)wcslen(Directory);
     wchar *DirectoryPtr = Directory;
-    wchar *DirectorySearchString = PushArray(StringsArena, MAX_PATH, wchar);
+    wchar *DirectorySearchString = PushArray(DirectoriesArena, DirectoryLength + 3, wchar);
     wchar *DirectorySearchStringPtr = DirectorySearchString;
     while(*DirectoryPtr != 0)
     {
@@ -86,70 +88,68 @@ Win32EnumerateDirectoryContents(arena *StringsArena, arena *TableArena, struct f
                 if((FileData.cFileName[0] != L'.') &&
                    ((FileData.cFileName[1] != L'.') || (FileData.cFileName[1] != 0)))
                 {
-                    wchar *ThisDirectoryPath = Win32CreateFullPath(StringsArena, Directory, FileData.cFileName);
-                    Win32EnumerateDirectoryContents(StringsArena, TableArena, FileTable, FileReadBuffer, ThisDirectoryPath);
+                    wchar *NextDirectoryPath = Win32CreateFullPath(StringsArena, Directory, FileData.cFileName);
+                    Win32EnumerateDirectoryContents(StringsArena, DirectoriesArena, NextDirectoryPath, Count);
                 }
             }
             else
             {
-                struct temp_memory TempFileArena = BeginTemporaryMemory(StringsArena);
-
-                struct entire_file EntireFile = {};
                 wchar *FullFilePath = Win32CreateFullPath(StringsArena, Directory, FileData.cFileName);
-                FILE *File = _wfopen(FullFilePath, L"rb");
-                if(File)
-                {
-                    _fseeki64(File, 0, SEEK_END);
-                    EntireFile.Size = _ftelli64(File);
-                    _fseeki64(File, 0, SEEK_SET);
-
-                    meow_u128 Hash;
-                    if(EntireFile.Size > MEOWHASH_STREAMING_THRESHOLD)
-                    {
-                        if(FileReadBuffer->Size < MEOWHASH_STREAMING_THRESHOLD)
-                        {
-                            Win32ResizeFileReadBuffer(FileReadBuffer, MEOWHASH_STREAMING_THRESHOLD);
-                        }
-
-                        EntireFile.Contents = FileReadBuffer->Memory;
-
-                        u32 BytesRead = 0;
-                        meow_state MeowState = {};
-                        MeowBegin(&MeowState, MeowDefaultSeed);
-                        while((BytesRead = (u32)fread(EntireFile.Contents, MEOWHASH_STREAMING_THRESHOLD, 1, File)) > 0)
-                        {
-                            MeowAbsorb(&MeowState, BytesRead, EntireFile.Contents);
-                        }
-                        Hash = MeowEnd(&MeowState, 0);
-                    }
-                    else
-                    {
-                        if(EntireFile.Size > FileReadBuffer->Size)
-                        {
-                            Win32ResizeFileReadBuffer(FileReadBuffer, EntireFile.Size);
-                        }
-
-                        EntireFile.Contents = FileReadBuffer->Memory;
-                        fread(EntireFile.Contents, EntireFile.Size, 1, File);
-
-                        Hash = MeowHash(MeowDefaultSeed, EntireFile.Size, EntireFile.Contents);
-                    }
-
-                    u32 FileNameSize = (u32)(wcslen(FileData.cFileName) + wcslen(Directory) + 2);
-                    wchar *FileName = Win32CreateFullPath(TableArena, Directory, FileData.cFileName);
-                    FileTableAddFileInfo(TableArena, FileTable, Hash, EntireFile.Size, FileNameSize, FileName);
-
-                    fclose(File);
-                }
-
-                EndTemporaryMemory(&TempFileArena);
+                *Count = *Count + 1;
             }
 
             NextFileIsValid = FindNextFileW(FindHandle, &FileData);
+
+#if 0
+            struct entire_file EntireFile = {};
+            FILE *File = _wfopen(FullFilePath, L"rb");
+            if(File)
+            {
+                _fseeki64(File, 0, SEEK_END);
+                EntireFile.Size = _ftelli64(File);
+                _fseeki64(File, 0, SEEK_SET);
+
+                meow_u128 Hash;
+                if(EntireFile.Size > MEOWHASH_STREAMING_THRESHOLD)
+                {
+                    if(FileReadBuffer->Size < MEOWHASH_STREAMING_THRESHOLD)
+                    {
+                        Win32ResizeFileReadBuffer(FileReadBuffer, MEOWHASH_STREAMING_THRESHOLD);
+                    }
+
+                    EntireFile.Contents = FileReadBuffer->Memory;
+
+                    u32 BytesRead = 0;
+                    meow_state MeowState = {};
+                    MeowBegin(&MeowState, MeowDefaultSeed);
+                    while((BytesRead = (u32)fread(EntireFile.Contents, MEOWHASH_STREAMING_THRESHOLD, 1, File)) > 0)
+                    {
+                        MeowAbsorb(&MeowState, BytesRead, EntireFile.Contents);
+                    }
+                    Hash = MeowEnd(&MeowState, 0);
+                }
+                else
+                {
+                    if(EntireFile.Size > FileReadBuffer->Size)
+                    {
+                        Win32ResizeFileReadBuffer(FileReadBuffer, EntireFile.Size);
+                    }
+
+                    EntireFile.Contents = FileReadBuffer->Memory;
+                    fread(EntireFile.Contents, EntireFile.Size, 1, File);
+
+                    Hash = MeowHash(MeowDefaultSeed, EntireFile.Size, EntireFile.Contents);
+                }
+
+                u32 FileNameSize = (u32)(wcslen(FileData.cFileName) + wcslen(Directory) + 2);
+                wchar *FileName = Win32CreateFullPath(TableArena, Directory, FileData.cFileName);
+                FileTableAddFileInfo(TableArena, FileTable, Hash, EntireFile.Size, FileNameSize, FileName);
+
+                fclose(File);
+            }
+#endif
         }
     }
-
-    EndTemporaryMemory(&TempMemory);
 }
 
 internal struct win32_dimensions
@@ -352,9 +352,11 @@ Win32EnumerateDirectoryContentsThreaded(void *Data)
     RedrawWindow(Bundle->TreeView, NULL, NULL, RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN);
     SendMessage(Bundle->TreeView, WM_SETREDRAW, FALSE, 0);
 
+#if 0
     Win32EnumerateDirectoryContents(Bundle->StringsArena, Bundle->TableArena,
                                     Bundle->FileTable, Bundle->FileReadBuffer,
                                     Bundle->SelectedFolderPath);
+#endif
 
     Win32FileTableToTreeView(Bundle->TreeView, Bundle->FileTable);
 
@@ -585,6 +587,7 @@ Win32WindowsCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
     return(Result);
 }
 
+#if 0
 int WINAPI
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
 {
@@ -778,3 +781,182 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
 
     return(0);
 }
+
+#else
+
+#if 0
+global_variable struct win32_file_list *FileList;
+global_variable struct ticket_mutex FileListMutex;
+#endif
+
+struct thread_bundle
+{
+    struct ticket_mutex *FileListMutex;
+    struct win32_file_list *FileList;
+
+    struct ticket_mutex *FileTableMutex;
+    struct file_table *FileTable;
+    struct arena *FileTableArena;
+};
+
+internal DWORD
+Win32PrintFileNamesThreaded(void *Data)
+{
+    struct thread_bundle *Bundle = (struct thread_bundle *)Data;
+    u8 *ThreadLocalStorage = (u8 *)__readgsqword(0x30);
+    u32 ThreadID = *(u32 *)(ThreadLocalStorage + 0x48);
+
+    struct file_buffer FileReadBuffer = {};
+    Win32ResizeFileReadBuffer(&FileReadBuffer, MEOWHASH_STREAMING_THRESHOLD);
+
+    u64 At = 0;
+    for(;;)
+    {
+        if(Bundle->FileListMutex->Ticket >= Bundle->FileList->FileNameCount)
+        {
+            break;
+        }
+
+        BeginTicketMutex(Bundle->FileListMutex);
+
+        At = Bundle->FileList->At;
+        wchar *FileName = *(Bundle->FileList->FileNames + At);
+
+        AtomicAddU64(&Bundle->FileList->At, 1);
+        EndTicketMutex(Bundle->FileListMutex);
+
+
+        struct entire_file EntireFile = {};
+        EntireFile.Contents = FileReadBuffer.Memory;
+        FILE *File = _wfopen(FileName, L"rb");
+        if(File)
+        {
+            _fseeki64(File, 0, SEEK_END);
+            EntireFile.Size = _ftelli64(File);
+            _fseeki64(File, 0, SEEK_SET);
+
+            meow_u128 Hash;
+            if(EntireFile.Size > MEOWHASH_STREAMING_THRESHOLD)
+            {
+                u32 BytesRead = 0;
+                meow_state MeowState = {};
+                MeowBegin(&MeowState, MeowDefaultSeed);
+                while((BytesRead = (u32)fread(EntireFile.Contents, MEOWHASH_STREAMING_THRESHOLD, 1, File)) > 0)
+                {
+                    MeowAbsorb(&MeowState, BytesRead, EntireFile.Contents);
+                }
+                Hash = MeowEnd(&MeowState, 0);
+            }
+            else
+            {
+                fread(EntireFile.Contents, EntireFile.Size, 1, File);
+                Hash = MeowHash(MeowDefaultSeed, EntireFile.Size, EntireFile.Contents);
+            }
+
+            fclose(File);
+            u32 FileNameSize = (u32)(wcslen(FileName));
+            // TODO(rick): This needs a mutex too
+            // wchar *FileName = PushArray(TableArena, FileNameSize + 1, wchar);
+
+            BeginTicketMutex(Bundle->FileTableMutex);
+            FileTableAddFileInfo(Bundle->FileTableArena, Bundle->FileTable, Hash, EntireFile.Size, FileNameSize, FileName);
+            EndTicketMutex(Bundle->FileTableMutex);
+        }
+
+    }
+
+    return(0);
+}
+
+struct thread_monitor_bundle
+{
+    u32 ThreadCount;
+    HANDLE *ThreadsArray;
+
+    DWORD ParentThreadID;
+};
+
+internal DWORD
+Win32ThreadMonitor(void *Data)
+{
+    struct thread_monitor_bundle *Bundle = (struct thread_monitor_bundle *)Data;
+    DWORD Result = WaitForMultipleObjects(Bundle->ThreadCount, Bundle->ThreadsArray,
+                                          TRUE, INFINITE);
+
+    PostThreadMessageW(Bundle->ParentThreadID, MESSAGE_NOTIFY_THREAD_END, 0, 0);
+    OutputDebugStringW(L"All threads finished\n");
+
+    return(0);
+}
+
+int
+main(void)
+{
+    printf("Hello world\n");
+    //wchar *StartDir = L"E:\\Dev\\Projects";//\\SuperDuper";
+    wchar *StartDir = L"E:\\Dev";
+    //wchar *StartDir = L"F:\\World of Warcraft";
+
+    u32 FileCount = 0;
+    struct arena *StringsArena = CreateArena(Kilobytes(512));
+    struct arena *DirectoriesArena = CreateArena(Kilobytes(512));
+    Win32EnumerateDirectoryContents(StringsArena, DirectoriesArena, StartDir, &FileCount);
+    DestroyArena(DirectoriesArena);
+
+
+    struct arena TableArena = {};
+    struct file_table FileTable = {};
+    InitializeArena(&TableArena, Kilobytes(32));
+    InitializeFileTable(&TableArena, &FileTable, 4093);
+
+    struct ticket_mutex FileTableMutex = {};
+    struct win32_file_list *FileList = BuildFileList(StringsArena, FileCount);
+    struct ticket_mutex FilesMutex = {};
+
+    struct thread_bundle ThreadBundle = {};
+    ThreadBundle.FileList = FileList;
+    ThreadBundle.FileListMutex = &FilesMutex;
+    ThreadBundle.FileTableMutex = &FileTableMutex;
+    ThreadBundle.FileTable = &FileTable;
+    ThreadBundle.FileTableArena = &TableArena;
+
+    HANDLE Threads[MAX_ALLOWED_THREADS] = {};
+    for(u32 ThreadIndex = 0; ThreadIndex < MAX_ALLOWED_THREADS; ++ThreadIndex)
+    {
+        HANDLE ThreadHandle = CreateThread(0, 0, Win32PrintFileNamesThreaded,
+                                        (LPVOID)&ThreadBundle, 0, 0);
+        Threads[ThreadIndex] = ThreadHandle;
+    }
+
+    DWORD Result = WaitForMultipleObjects(MAX_ALLOWED_THREADS, Threads, TRUE, INFINITE);
+
+#if 0
+    struct thread_monitor_bundle MonitorThreadBundle = {};
+    MonitorThreadBundle.ThreadCount = MAX_ALLOWED_THREADS;
+    MonitorThreadBundle.ThreadsArray = Threads;
+    MonitorThreadBundle.ParentThreadID = GetCurrentThreadId();
+
+    HANDLE MonitorThread = CreateThread(0, 0, Win32ThreadMonitor, (LPVOID)&MonitorThreadBundle, 0, 0);
+    CloseHandle(MonitorThread);
+#endif
+
+#if 0
+    for(u32 Index = 0; Index < FileList->FileNameCount; ++Index)
+    {
+        if(Index == FileList->FileNameCount - 2)
+        {
+            int a = 5;
+        }
+        wprintf(L"%ws\n", *(FileList->FileNames + Index));
+    }
+
+    while(1)
+    {
+        Sleep(1);
+    }
+#endif
+
+    return 0;
+}
+
+#endif

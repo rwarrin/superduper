@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <intrin.h>
 
 typedef wchar_t wchar;
 typedef uint8_t u8;
@@ -31,6 +32,43 @@ typedef uint32_t b32;
 
 #define MAX(A, B) ((A) > (B) ? (A) : (B))
 
+inline u8 *
+Win32AllocateMemory(u64 Size)
+{
+    u8 *Result = (u8 *)VirtualAlloc(0, Size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    Assert(Result != 0);
+
+    return(Result);
+}
+
+inline u8 *
+Win32ReallocateMemory(u8 *Source, u64 Size)
+{
+    u8 *Result = (u8 *)VirtualAlloc(0, Size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    if(!Result)
+    {
+        Result = Source;
+    }
+
+    return(Result);
+}
+
+inline b32
+Win32ResizeMemory(u8 *Source, u64 NewSize, u64 OldSize)
+{
+    b32 Result = 0;
+
+    u8 *NewMemory = Win32ReallocateMemory(Source, NewSize);
+    if(NewMemory != Source)
+    {
+        CopyMemory(NewMemory, Source, OldSize);
+        Result = 1;
+    }
+
+    return(Result);
+}
+
+
 struct arena
 {
     u8 *Base;
@@ -55,6 +93,32 @@ InitializeArena(struct arena *Arena, u64 Size)
         Arena->Base = (u8 *)VirtualAlloc(0, sizeof(char)*Size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
         Arena->Size = Size;
         Arena->Used = 0;
+    }
+}
+
+internal struct arena *
+CreateArena(u64 Size)
+{
+    struct arena *Result = 0;
+
+    u64 ArenaSize = sizeof(struct arena) + Size;
+    Result = (struct arena *)VirtualAlloc(0, ArenaSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    Result->Used = 0;
+    Result->Size = Size;
+    Result->Base = (u8 *)(Result + 1);
+
+    return(Result);
+}
+
+internal void
+DestroyArena(struct arena *Arena)
+{
+    if(Arena)
+    {
+        Arena->Used = 0;
+        Arena->Size = 0;
+        u8 *Base = (u8 *)(((struct arena *)Arena->Base) - 1);
+        VirtualFree(Arena->Base, 0, MEM_RELEASE);
     }
 }
 
@@ -87,11 +151,7 @@ _PushSize(struct arena *Arena, u32 Size)
             BlockSize = Size*2;
         }
 
-        u64 ArenaSize = sizeof(struct arena) + BlockSize;
-        UsingArena = (struct arena *)VirtualAlloc(0, ArenaSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-        UsingArena->Used = 0;
-        UsingArena->Size = BlockSize;
-        UsingArena->Base = (u8 *)(UsingArena + 1);
+        UsingArena = CreateArena(BlockSize);
 
         if(PreviousArena != 0)
         {
@@ -181,8 +241,38 @@ struct entire_file
 
 enum
 {
-    MEOWHASH_STREAMING_THRESHOLD = Megabytes(32)
+    MEOWHASH_STREAMING_THRESHOLD = Megabytes(8),
+    MAX_ALLOWED_THREADS = 12,
 };
+
+struct ticket_mutex
+{
+    u64 volatile Ticket;
+    u64 volatile Serving;
+};
+
+inline u64
+AtomicAddU64(u64 volatile *Value, u64 Addend)
+{
+    u64 Result = _InterlockedExchangeAdd64((__int64 volatile *)Value, Addend);
+    return(Result);
+}
+
+inline void
+BeginTicketMutex(struct ticket_mutex *Mutex)
+{
+    u64 Ticket = AtomicAddU64(&Mutex->Ticket, 1);
+    while(Ticket != Mutex->Serving)
+    {
+        _mm_pause();
+    }
+}
+
+inline void
+EndTicketMutex(struct ticket_mutex *Mutex)
+{
+    AtomicAddU64(&Mutex->Serving, 1);
+}
 
 #define SUPER_PLATFORM_H
 #endif

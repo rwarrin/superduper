@@ -43,5 +43,14 @@ enum StatusBarItems
     StatusBarItems_Count,
 };
 
+struct win32_file_list
+{
+    u32 FileNameCount;
+    wchar **FileNames;
+    struct arena *StringsArena;
+
+    u64 volatile At;
+};
+
 #define WIN32_SUPERDUPER_H
 #endif
